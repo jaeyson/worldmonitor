@@ -59,6 +59,7 @@ const SECRET_ANALYTICS_NAMES: Record<RuntimeSecretKey, string> = {
 const HAS_KEYS = Object.values(SECRET_ANALYTICS_NAMES).map(n => `has_${n}`);
 
 const EVENT_SCHEMAS: Record<string, Set<string>> = {
+  // Phase 1 — core events
   wm_app_loaded: new Set(['load_time_ms', 'panel_count']),
   wm_panel_viewed: new Set(['panel_id']),
   wm_summary_generated: new Set(['provider', 'model', 'cached']),
@@ -68,6 +69,26 @@ const EVENT_SCHEMAS: Record<string, Set<string>> = {
     'ollama_model', 'platform',
     ...HAS_KEYS,
   ]),
+  // Phase 2 — user interactions
+  wm_variant_switched: new Set(['from_variant', 'to_variant']),
+  wm_theme_toggled: new Set(['from_theme', 'to_theme']),
+  wm_language_changed: new Set(['from_language', 'to_language']),
+  wm_map_view_changed: new Set(['view']),
+  wm_map_layer_toggled: new Set(['layer', 'enabled']),
+  wm_country_selected: new Set(['country_code', 'country_name', 'source']),
+  wm_search_result_selected: new Set(['result_type']),
+  wm_panel_toggled: new Set(['panel_id', 'enabled']),
+  wm_finding_clicked: new Set(['finding_id', 'finding_source', 'finding_type', 'priority']),
+  wm_feature_toggle_changed: new Set(['feature_id', 'enabled']),
+  wm_update_shown: new Set(['current_version', 'remote_version']),
+  wm_update_clicked: new Set(['target_version']),
+  wm_update_dismissed: new Set(['target_version']),
+  wm_critical_banner_action: new Set(['action', 'theater_id']),
+  wm_download_clicked: new Set(['platform']),
+  wm_download_banner_dismissed: new Set([]),
+  wm_webcam_selected: new Set(['webcam_id', 'city', 'view_mode']),
+  wm_webcam_region_filtered: new Set(['region']),
+  wm_deeplink_opened: new Set(['deeplink_type', 'target']),
 };
 
 function sanitizeProps(event: string, raw: Record<string, unknown>): Record<string, unknown> {
@@ -208,4 +229,82 @@ export function trackLLMUsage(provider: string, model: string, cached: boolean):
 
 export function trackLLMFailure(lastProvider: string): void {
   trackEvent('wm_summary_failed', { last_provider: lastProvider });
+}
+
+// ── Phase 2 helpers ──
+
+export function trackVariantSwitch(from: string, to: string): void {
+  trackEvent('wm_variant_switched', { from_variant: from, to_variant: to });
+}
+
+export function trackThemeToggle(from: string, to: string): void {
+  trackEvent('wm_theme_toggled', { from_theme: from, to_theme: to });
+}
+
+export function trackLanguageChange(from: string, to: string): void {
+  trackEvent('wm_language_changed', { from_language: from, to_language: to });
+}
+
+export function trackMapViewChange(view: string): void {
+  trackEvent('wm_map_view_changed', { view });
+}
+
+export function trackMapLayerToggle(layer: string, enabled: boolean): void {
+  trackEvent('wm_map_layer_toggled', { layer, enabled });
+}
+
+export function trackCountrySelected(code: string, name: string, source: string): void {
+  trackEvent('wm_country_selected', { country_code: code, country_name: name, source });
+}
+
+export function trackSearchResultSelected(resultType: string): void {
+  trackEvent('wm_search_result_selected', { result_type: resultType });
+}
+
+export function trackPanelToggled(panelId: string, enabled: boolean): void {
+  trackEvent('wm_panel_toggled', { panel_id: panelId, enabled });
+}
+
+export function trackFindingClicked(id: string, source: string, type: string, priority: string): void {
+  trackEvent('wm_finding_clicked', { finding_id: id, finding_source: source, finding_type: type, priority });
+}
+
+export function trackFeatureToggle(featureId: string, enabled: boolean): void {
+  trackEvent('wm_feature_toggle_changed', { feature_id: featureId, enabled });
+}
+
+export function trackUpdateShown(current: string, remote: string): void {
+  trackEvent('wm_update_shown', { current_version: current, remote_version: remote });
+}
+
+export function trackUpdateClicked(version: string): void {
+  trackEvent('wm_update_clicked', { target_version: version });
+}
+
+export function trackUpdateDismissed(version: string): void {
+  trackEvent('wm_update_dismissed', { target_version: version });
+}
+
+export function trackCriticalBannerAction(action: string, theaterId: string): void {
+  trackEvent('wm_critical_banner_action', { action, theater_id: theaterId });
+}
+
+export function trackDownloadClicked(platform: string): void {
+  trackEvent('wm_download_clicked', { platform });
+}
+
+export function trackDownloadBannerDismissed(): void {
+  trackEvent('wm_download_banner_dismissed');
+}
+
+export function trackWebcamSelected(webcamId: string, city: string, viewMode: string): void {
+  trackEvent('wm_webcam_selected', { webcam_id: webcamId, city, view_mode: viewMode });
+}
+
+export function trackWebcamRegionFiltered(region: string): void {
+  trackEvent('wm_webcam_region_filtered', { region });
+}
+
+export function trackDeeplinkOpened(type: string, target: string): void {
+  trackEvent('wm_deeplink_opened', { deeplink_type: type, target });
 }
