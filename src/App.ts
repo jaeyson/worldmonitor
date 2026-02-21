@@ -100,7 +100,7 @@ import { isDesktopRuntime } from '@/services/runtime';
 import { IntelligenceServiceClient } from '@/generated/client/worldmonitor/intelligence/v1/service_client';
 import { ResearchServiceClient } from '@/generated/client/worldmonitor/research/v1/service_client';
 import { isFeatureAvailable } from '@/services/runtime-config';
-import { trackEvent, trackPanelView, trackVariantSwitch, trackThemeToggle, trackMapViewChange, trackMapLayerToggle, trackCountrySelected, trackSearchResultSelected, trackPanelToggled, trackUpdateShown, trackUpdateClicked, trackUpdateDismissed, trackCriticalBannerAction, trackDeeplinkOpened } from '@/services/analytics';
+import { trackEvent, trackPanelView, trackVariantSwitch, trackThemeChanged, trackMapViewChange, trackMapLayerToggle, trackCountrySelected, trackCountryBriefOpened, trackSearchResultSelected, trackPanelToggled, trackUpdateShown, trackUpdateClicked, trackUpdateDismissed, trackCriticalBannerAction, trackDeeplinkOpened } from '@/services/analytics';
 import { invokeTauri } from '@/services/tauri-bridge';
 import { getCountryAtCoordinates, hasCountryGeometry, isCoordinateInCountry, preloadCountryGeometry } from '@/services/country-geometry';
 import { initI18n, t, changeLanguage } from '@/services/i18n';
@@ -776,7 +776,7 @@ export class App {
   private setupMapLayerHandlers(): void {
     this.map?.setOnLayerChange((layer, enabled) => {
       console.log(`[App.onLayerChange] ${layer}: ${enabled}`);
-      trackMapLayerToggle(layer, enabled);
+      trackMapLayerToggle(layer, enabled, 'user');
       // Save layer settings
       this.mapLayers[layer] = enabled;
       saveToStorage(STORAGE_KEYS.mapLayers, this.mapLayers);
@@ -887,6 +887,7 @@ export class App {
   public async openCountryBriefByCode(code: string, country: string): Promise<void> {
     if (!this.countryBriefPage) return;
     this.map?.setRenderPaused(true);
+    trackCountryBriefOpened(code);
 
     // Normalize to canonical name (GeoJSON may use "United States of America" etc.)
     const canonicalName = TIER1_COUNTRIES[code] || App.resolveCountryName(code);
@@ -2654,11 +2655,10 @@ export class App {
 
     // Header theme toggle button
     document.getElementById('headerThemeToggle')?.addEventListener('click', () => {
-      const prev = getCurrentTheme();
-      const next = prev === 'dark' ? 'light' : 'dark';
+      const next = getCurrentTheme() === 'dark' ? 'light' : 'dark';
       setTheme(next);
       this.updateHeaderThemeIcon();
-      trackThemeToggle(prev, next);
+      trackThemeChanged(next);
     });
 
     // Sources modal

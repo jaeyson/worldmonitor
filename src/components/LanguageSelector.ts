@@ -74,7 +74,7 @@ export class LanguageSelector {
             option.addEventListener('click', (e) => {
                 const code = (e.currentTarget as HTMLElement).dataset.code;
                 if (code && code !== this.currentLang) {
-                    trackLanguageChange(this.currentLang, code);
+                    trackLanguageChange(code);
                     changeLanguage(code);
                 }
                 this.close();

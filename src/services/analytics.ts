@@ -69,17 +69,21 @@ const EVENT_SCHEMAS: Record<string, Set<string>> = {
     'ollama_model', 'platform',
     ...HAS_KEYS,
   ]),
-  // Phase 2 — user interactions
-  wm_variant_switched: new Set(['from_variant', 'to_variant']),
-  wm_theme_toggled: new Set(['from_theme', 'to_theme']),
-  wm_language_changed: new Set(['from_language', 'to_language']),
+  // Phase 2 — plan-specified events
+  wm_panel_resized: new Set(['panel_id', 'new_span']),
+  wm_variant_switched: new Set(['from', 'to']),
+  wm_map_layer_toggled: new Set(['layer_id', 'enabled', 'source']),
+  wm_country_brief_opened: new Set(['country_code']),
+  wm_theme_changed: new Set(['theme']),
+  wm_language_changed: new Set(['language']),
+  wm_feature_toggled: new Set(['feature_id', 'enabled']),
+  wm_search_used: new Set(['query_length', 'result_count']),
+  // Phase 2 — additional interaction events
   wm_map_view_changed: new Set(['view']),
-  wm_map_layer_toggled: new Set(['layer', 'enabled']),
   wm_country_selected: new Set(['country_code', 'country_name', 'source']),
   wm_search_result_selected: new Set(['result_type']),
   wm_panel_toggled: new Set(['panel_id', 'enabled']),
   wm_finding_clicked: new Set(['finding_id', 'finding_source', 'finding_type', 'priority']),
-  wm_feature_toggle_changed: new Set(['feature_id', 'enabled']),
   wm_update_shown: new Set(['current_version', 'remote_version']),
   wm_update_clicked: new Set(['target_version']),
   wm_update_dismissed: new Set(['target_version']),
@@ -122,7 +126,7 @@ function deepStripSecrets(props: Record<string, unknown>): Record<string, unknow
 type PostHogInstance = {
   init: (key: string, config: Record<string, unknown>) => void;
   register: (props: Record<string, unknown>) => void;
-  capture: (event: string, props?: Record<string, unknown>) => void;
+  capture: (event: string, props?: Record<string, unknown>, options?: { transport?: 'XHR' | 'sendBeacon' }) => void;
 };
 
 let posthogInstance: PostHogInstance | null = null;
@@ -184,6 +188,14 @@ export async function initAnalytics(): Promise<void> {
 
       posthog.register(superProps);
       posthogInstance = posthog as unknown as PostHogInstance;
+
+      // Flush any events queued while offline (desktop)
+      flushOfflineQueue();
+
+      // Re-flush when coming back online
+      if (isDesktopRuntime()) {
+        window.addEventListener('online', () => flushOfflineQueue());
+      }
     } catch (error) {
       console.warn('[Analytics] Failed to initialize PostHog:', error);
     }
@@ -192,10 +204,48 @@ export async function initAnalytics(): Promise<void> {
   return initPromise;
 }
 
+// ── Offline event queue (desktop) ──
+
+const OFFLINE_QUEUE_KEY = 'wm-analytics-offline-queue';
+const OFFLINE_QUEUE_CAP = 200;
+
+function enqueueOffline(name: string, props: Record<string, unknown>): void {
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    const queue: Array<{ name: string; props: Record<string, unknown>; ts: number }> = raw ? JSON.parse(raw) : [];
+    queue.push({ name, props, ts: Date.now() });
+    if (queue.length > OFFLINE_QUEUE_CAP) queue.splice(0, queue.length - OFFLINE_QUEUE_CAP);
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+  } catch { /* localStorage full or unavailable */ }
+}
+
+function flushOfflineQueue(): void {
+  if (!posthogInstance) return;
+  try {
+    const raw = localStorage.getItem(OFFLINE_QUEUE_KEY);
+    if (!raw) return;
+    const queue: Array<{ name: string; props: Record<string, unknown> }> = JSON.parse(raw);
+    localStorage.removeItem(OFFLINE_QUEUE_KEY);
+    for (const { name, props } of queue) {
+      posthogInstance.capture(name, props);
+    }
+  } catch { /* corrupt queue, discard */ }
+}
+
 export function trackEvent(name: string, props?: Record<string, unknown>): void {
+  const safeProps = props ? sanitizeProps(name, props) : {};
+  if (!posthogInstance) {
+    if (isDesktopRuntime() && POSTHOG_KEY) enqueueOffline(name, safeProps);
+    return;
+  }
+  posthogInstance.capture(name, safeProps);
+}
+
+/** Use sendBeacon transport for events fired just before page reload. */
+export function trackEventBeforeUnload(name: string, props?: Record<string, unknown>): void {
   if (!posthogInstance) return;
   const safeProps = props ? sanitizeProps(name, props) : {};
-  posthogInstance.capture(name, safeProps);
+  posthogInstance.capture(name, safeProps, { transport: 'sendBeacon' });
 }
 
 export function trackPanelView(panelId: string): void {
@@ -231,26 +281,44 @@ export function trackLLMFailure(lastProvider: string): void {
   trackEvent('wm_summary_failed', { last_provider: lastProvider });
 }
 
-// ── Phase 2 helpers ──
+// ── Phase 2 helpers (plan-specified events) ──
+
+export function trackPanelResized(panelId: string, newSpan: number): void {
+  trackEvent('wm_panel_resized', { panel_id: panelId, new_span: newSpan });
+}
 
 export function trackVariantSwitch(from: string, to: string): void {
-  trackEvent('wm_variant_switched', { from_variant: from, to_variant: to });
+  trackEventBeforeUnload('wm_variant_switched', { from, to });
 }
 
-export function trackThemeToggle(from: string, to: string): void {
-  trackEvent('wm_theme_toggled', { from_theme: from, to_theme: to });
+export function trackMapLayerToggle(layerId: string, enabled: boolean, source: 'user' | 'programmatic'): void {
+  trackEvent('wm_map_layer_toggled', { layer_id: layerId, enabled, source });
 }
 
-export function trackLanguageChange(from: string, to: string): void {
-  trackEvent('wm_language_changed', { from_language: from, to_language: to });
+export function trackCountryBriefOpened(countryCode: string): void {
+  trackEvent('wm_country_brief_opened', { country_code: countryCode });
 }
+
+export function trackThemeChanged(theme: string): void {
+  trackEventBeforeUnload('wm_theme_changed', { theme });
+}
+
+export function trackLanguageChange(language: string): void {
+  trackEventBeforeUnload('wm_language_changed', { language });
+}
+
+export function trackFeatureToggle(featureId: string, enabled: boolean): void {
+  trackEvent('wm_feature_toggled', { feature_id: featureId, enabled });
+}
+
+export function trackSearchUsed(queryLength: number, resultCount: number): void {
+  trackEvent('wm_search_used', { query_length: queryLength, result_count: resultCount });
+}
+
+// ── Phase 2 helpers (additional interaction events) ──
 
 export function trackMapViewChange(view: string): void {
   trackEvent('wm_map_view_changed', { view });
-}
-
-export function trackMapLayerToggle(layer: string, enabled: boolean): void {
-  trackEvent('wm_map_layer_toggled', { layer, enabled });
 }
 
 export function trackCountrySelected(code: string, name: string, source: string): void {
@@ -267,10 +335,6 @@ export function trackPanelToggled(panelId: string, enabled: boolean): void {
 
 export function trackFindingClicked(id: string, source: string, type: string, priority: string): void {
   trackEvent('wm_finding_clicked', { finding_id: id, finding_source: source, finding_type: type, priority });
-}
-
-export function trackFeatureToggle(featureId: string, enabled: boolean): void {
-  trackEvent('wm_feature_toggle_changed', { feature_id: featureId, enabled });
 }
 
 export function trackUpdateShown(current: string, remote: string): void {
